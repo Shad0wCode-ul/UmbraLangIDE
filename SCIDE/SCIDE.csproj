@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>9.0</LangVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+</PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="ScintillaNET">
+      <HintPath>..\..\jacobslusser.ScintillaNET.3.6.3\ScintillaNET.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
