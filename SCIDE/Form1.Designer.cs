@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -92,6 +92,12 @@ namespace SCIDE
         private System.Windows.Forms.TextBox inputBox;
         private string stealthPath = "";
 
+        private int initialSpeed = 5;
+        private int initialGravitySpeed = 3;
+
+        private int speed = 5;
+        private int gravitySpeed = 3;
+
         private string currentScriptPath = "";
         private string waitingForInputName = null;
         private Queue<string> scriptQueue = new();
@@ -103,8 +109,8 @@ namespace SCIDE
         private System.Windows.Forms.TextBox outputBox;
         private System.Windows.Forms.Button startButton;
         private GameWindow gameWindow;
-        private static int playerX = 100;
-        private static int playerY = 100;
+        public static int playerX = 100;
+        public static int playerY = 100;
         private int playerXNormal = 100;
         private int playerYNormal = 100;
 
@@ -141,7 +147,8 @@ namespace SCIDE
         "getInputCount", "gteLabelCount", "addImage", "setBackgroundColor",
         "setBackgroundImage", "playAudio", "startGame", "UmbraGameLib", "getPlayerPos",
         "replacePlayerX", "replacePlayerY", "movePlayer", "quit", "Instantiate", "ifKeyPressed",
-        "getKeyInput", "waitKeyPressed", "whileKeyPressed", "checkCollisionOfSomething"
+        "getKeyInput", "waitKeyPressed", "whileKeyPressed", "checkCollisionOfSomething", "everyTimeKeyPressed",
+        "addGravity", "checkCollisionWithPlayer", "checkCollision", "cameraFollowPlayer", "stopCameraFollow"
     };
 
         private List<string> availableCommands = new List<string>
@@ -733,7 +740,15 @@ namespace SCIDE
                 playerX = playerXNormal;
                 playerY = playerYNormal;
                 gameWindow.SetPlayerX(playerX);
-                gameWindow.SetPlayerY(playerY);
+                gameWindow.SetPlayerY(playerY); 
+                UmbraLangIDE.SetPlayerX(playerX);
+                UmbraLangIDE.SetPlayerY(playerY);
+                xs = new List<int> { playerX };
+                ys = new List<int> { playerY };
+                sxs = new List<int> { 64 };
+                sys = new List<int> { 64 };
+                speed = initialSpeed;
+                gameWindow.GravitySpeed = 3;
                 gameWindow.Close();
                 gameWindow = null;
             }
@@ -794,6 +809,8 @@ namespace SCIDE
                 currentFunctionName = null;
                 currentFunctionLines = null;
 
+                //WriteConsole(playerXNormal.ToString() + " " + playerYNormal.ToString());
+
                 for (int i = 0; i < lines.Length; i++)
                 {
                     Random rnd = new Random();
@@ -806,7 +823,6 @@ namespace SCIDE
                         continue;
                     }
 
-                    // Checken falls die GameLibary verbunden wird //
                     if (line.StartsWith("usingCode UmbraWindowLib"))
                     {
                         isWindowLibaryConnected = true;
@@ -866,13 +882,22 @@ namespace SCIDE
                             try
                             {
                                 gameWindow = new GameWindow(imagePath);
+                                if (gameWindow != null)
+                                {
+                                    playerX = playerXNormal;
+                                    playerY = playerYNormal;
+                                    gameWindow.SetPlayerX(playerXNormal);
+                                    gameWindow.SetPlayerY(playerYNormal);
+                                    SetPlayerY(playerYNormal);
+                                }
                                 gameWindow.StartPosition = FormStartPosition.Manual;
                                 gameWindow.Location = new Point(this.Right + 10, this.Top);
                                 //timer.Tick += (s, e) => UpdatePressedKeysFromPhysicalState();
                                 timer.Tick += (s, e) =>
                                 {
                                     gameWindow.ApplyGravity();
-                                    gameWindow.CheckAndTeleportPlayer();
+                                    gameWindow.UpdateCameraFollow(playerX, playerY); // Kamera aktualisieren
+                                    //gameWindow.CheckAndTeleportPlayer();
                                     Invalidate();
                                 };
                                 gameWindow.Show();
@@ -881,6 +906,30 @@ namespace SCIDE
                             {
                                 WriteConsole("❌ Fehler beim Erstellen des GameWindows: " + ex.Message + "\n" + ex.StackTrace);
                             }
+                        }
+                        else if (line.StartsWith("cameraFollowPlayer()"))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("❌ Game window not initialized.");
+                                return;
+                            }
+
+                            gameWindow.SetCameraFollow(true);
+                            if (isDebuging)
+                                WriteConsole("📷 Kamera folgt jetzt dem Spieler.");
+                        }
+                        else if (line.StartsWith("stopCameraFollow()"))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("❌ Game window not initialized.");
+                                return;
+                            }
+
+                            gameWindow.SetCameraFollow(false);
+                            if (isDebuging)
+                                WriteConsole("📷 Kamera folgt dem Spieler nicht mehr.");
                         }
                         else if (line.StartsWith("getPlayerPos()"))
                         {
@@ -913,7 +962,7 @@ namespace SCIDE
                                         WriteConsole("❌ Game window not initialized.");
                                         return;
                                     }
-                                    int speed = int.Parse(args[1]);
+                                    speed = int.Parse(args[1]);
                                     //int.TryParse(args[1], out speed);
                                     if (direction == "left")
                                     {
@@ -1216,7 +1265,65 @@ namespace SCIDE
                                     {
                                         CodeBlock = codeBlock,
                                         TriggerKey = targetKey,
-                                        IsLooping = false
+                                        IsLooping = false,
+                                        everyTime = false
+                                    });
+                                }
+
+                            }
+                            else
+                            {
+                                WriteConsole("❌ Ungültige Argumente in addButton()");
+                            }
+                        }
+                        else if (line.StartsWith("everyTimeKeyPressed("))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("Game window not initialized.");
+                                return;
+                            }
+
+                            // Wir sammeln alle Zeilen bis zur schließenden Klammer
+                            string fullLine = line;
+                            int blockDepth = line.Count(c => c == '{') - line.Count(c => c == '}');
+
+                            while (blockDepth > 0 && scriptQueue.Count > 0)
+                            {
+                                string nextLine = scriptQueue.Dequeue();
+                                fullLine += "\n" + nextLine;
+                                blockDepth += nextLine.Count(c => c == '{') - nextLine.Count(c => c == '}');
+                            }
+
+                            // Jetzt ist fullLine die vollständige Anweisung (auch über mehrere Zeilen)
+
+                            int openParen = fullLine.IndexOf('(');
+                            int firstBrace = fullLine.IndexOf('{');
+                            int lastBrace = fullLine.LastIndexOf('}');
+
+                            string argsPart = fullLine.Substring(openParen + 1, firstBrace - openParen - 1).Trim().TrimEnd(',');
+                            string[] args = argsPart.Split(',').Select(a => a.Trim()).ToArray();
+
+                            if (args.Length >= 1)
+                            {
+                                string keyName = args[0].Trim('"');
+
+                                string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+
+                                if (Enum.TryParse(keyName, true, out Keys targetKey))
+                                {
+                                    if (gameWindow.LastKeyPressed == targetKey)
+                                    {
+                                        CompileScript(codeBlock + "\n", path);
+                                        //if (isDebuging)
+                                        WriteConsole($"🟢 ifKeyPressed ausgeführt: {targetKey}");
+                                    }
+                                    keyActions.Add(new KeyAction
+                                    {
+                                        CodeBlock = codeBlock,
+                                        TriggerKey = targetKey,
+                                        IsLooping = false,
+                                        everyTime = true
                                     });
                                 }
 
@@ -1272,7 +1379,8 @@ namespace SCIDE
                                     {
                                         CodeBlock = codeBlock,
                                         TriggerKey = targetKey,
-                                        IsLooping = true
+                                        IsLooping = true,
+                                        everyTime = false
                                     });
                                 }
 
@@ -2381,6 +2489,11 @@ namespace SCIDE
         {
             playerY = newY;
         }
+        public static void SetPlayerX(int newY)
+        {
+            playerX = newY;
+        }
+
         public static List<int> GetXPositions()
         {
             return xs;
@@ -2464,6 +2577,18 @@ namespace SCIDE
                         if (isDown)
                         {
                             CompileScript(action.CodeBlock + "\n", currentScriptPath);
+                        }
+                    }
+                    else if (action.everyTime)
+                    {
+                        if (isDown && !action.WasPreviouslyDown)
+                        {
+                            action.WasPreviouslyDown = true;
+                            CompileScript(action.CodeBlock + "\n", currentScriptPath);
+                        }
+                        else if (!isDown)
+                        {
+                            action.WasPreviouslyDown = false;
                         }
                     }
                     else
@@ -2730,6 +2855,64 @@ namespace SCIDE
                    y1 + h1 > y2;
         }
 
+        Dictionary<string, Image[]> animations = new Dictionary<string, Image[]>();
+        string currentAnim = "idle";
+        int currentFrame = 0;
+        int frameCounter = 0;
+
+        void LoadAnimations()
+        {
+            animations["idle"] = LoadFrames("Sprites/Idle_", 4);
+            animations["run"] = LoadFrames("Sprites/Run_", 6);
+        }
+
+        Image[] LoadFrames(string prefix, int count)
+        {
+            Image[] frames = new Image[count];
+            for (int i = 0; i < count; i++)
+                frames[i] = Image.FromFile($"{prefix}{i}.png");
+            return frames;
+        }
+
+        void UpdateAnimation()
+        {
+            frameCounter++;
+            if (frameCounter >= 5) // langsamer oder schneller animieren
+            {
+                frameCounter = 0;
+                currentFrame = (currentFrame + 1) % animations[currentAnim].Length;
+            }
+        }
+
+        Image GetCurrentPlayerSprite() => animations[currentAnim][currentFrame];
+
+
+        private bool isCameraFollowingPlayer = false;
+        private float cameraOffsetX = 0;
+        private float cameraOffsetY = 0;
+
+        public void SetCameraFollow(bool follow)
+        {
+            isCameraFollowingPlayer = follow;
+        }
+
+        public void UpdateCameraFollow(int playerX, int playerY)
+        {
+            this.DoubleBuffered = true;
+            if (isCameraFollowingPlayer)
+            {
+                // Sanfte Bewegung der Kamera (Lerp)
+                float targetX = playerX - this.ClientSize.Width / 2;
+                float targetY = playerY - this.ClientSize.Height / 2;
+
+                if (Math.Abs(targetX - cameraOffsetX) < 1)
+                    cameraOffsetX = targetX;
+                else
+                    cameraOffsetX += (targetX - cameraOffsetX) / 6;
+                cameraOffsetY += (targetY - cameraOffsetY) / 6;
+            }
+        }
+
         public bool IfCollision()
         {
             for (int i = 0; i < imagel.Count; i++)
@@ -2745,9 +2928,9 @@ namespace SCIDE
 
         public bool IsPlayerCollidingWithAny(int anotherCount)
         {
-            for (int i = 1; i < imagel.Count; i++) // i = 1, weil 0 der Player ist
+            for (int i = 1; i < UmbraLangIDE.xs.Count; i++) // i = 1, weil 0 der Player ist
             {
-                if (CheckCollision(
+                if (CheckCollision3(
                     xl[0], yl[0], sizexl[0], sizeyl[0],
                     xl[anotherCount], yl[anotherCount], sizexl[anotherCount], sizeyl[anotherCount]
                 ))
@@ -2785,7 +2968,7 @@ namespace SCIDE
 
         public bool IfCollision2(int indexA, int indexB)
         {
-            if (indexA < 0 || indexA >= imagel.Count || indexB < 0 || indexB >= imagel.Count)
+            if (indexA < 0 || indexA >= UmbraLangIDE.xs.Count || indexB < 0 || indexB >= UmbraLangIDE.xs.Count)
             {
                 WriteConsole("❌ Ungültiger Index für Kollisionsprüfung.");
                 return false;
@@ -2832,6 +3015,20 @@ namespace SCIDE
             this.Paint += GameWindow_Paint;
         }
 
+        public string IsObjectCollidingWith(int i1, int i2)
+        {
+            if (i1 < 0 || i1 >= imagel.Count || i2 < 0 || i2 >= imagel.Count)
+            {
+                WriteConsole("❌ Ungültiger Index für Kollisionsprüfung.");
+                return "false";
+            }
+            bool isColliding = CheckCollision2(
+                xl[i1], yl[i1], sizexl[i1], sizeyl[i1],
+                xl[i2], yl[i2], sizexl[i2], sizeyl[i2]
+            );
+            return isColliding.ToString();
+        }
+
         private void GameWindow_KeyDown(object sender, KeyEventArgs e)
         {
             LastKeyPressed = e.KeyCode;
@@ -2861,6 +3058,7 @@ namespace SCIDE
             playerX = x;
             Invalidate();
         }
+
         public void SetPlayerY(int x)
         {
             playerY = x;
@@ -2922,85 +3120,116 @@ namespace SCIDE
             {
                 for (int i = 0; i < imagel.Count; i++)
                 {
-                    e.Graphics.DrawImage(imagel[i], xl[i], yl[i], sizexl[i], sizeyl[i]);
+                    e.Graphics.DrawImage(imagel[i], xl[i] - (int)cameraOffsetX, yl[i] - (int)cameraOffsetY, sizexl[i], sizeyl[i]);
                 }
             }
-            e.Graphics.DrawImage(playerSprite, playerX, playerY, 64, 64);
+            e.Graphics.DrawImage(playerSprite, UmbraLangIDE.playerX - (int)cameraOffsetX, UmbraLangIDE.playerY - (int)cameraOffsetY, 64, 64);
         }
         // In GameWindow.cs
         private HashSet<int> objectsWithGravity = new HashSet<int>();
-        private int gravitySpeed = 2;
+        private int gravitySpeed = 3;
+        public int GravitySpeed
+        {
+            get => gravitySpeed;
+            set => gravitySpeed = value;
+        }
 
         public void AddGravityToObject(int index)
         {
             objectsWithGravity.Add(index);
         }
-
+        // Optional: Eine Map für Offsets (falls du mehrere Objekte hast)
+        Dictionary<int, int> visualYOffset = new Dictionary<int, int>();
         public void ApplyGravity()
         {
+            visualYOffset[0] = 28;  // Beispiel: 239 statt 211 → 239 - 211 = 28
             foreach (int index in objectsWithGravity)
             {
-                bool isStandingOnSomething = false;
+                bool landed = false;
+                // Fallback-Wert, falls keine Kollision erkannt wird
+                int newY = UmbraLangIDE.ys[index];
 
-                for (int i = 0; i < imagel.Count; i++)
+                // Pixelweise nach unten prüfen
+                for (int step = 1; step <= gravitySpeed; step++)
                 {
-                    if (i == index) continue;
+                    int testY = UmbraLangIDE.ys[index] + step;
+                    bool collision = false;
 
-                    int futureY = UmbraLangIDE.ys[index] + gravitySpeed;
-
-                    if (CheckCollision2(
-                        UmbraLangIDE.xs[index], futureY, UmbraLangIDE.sxs[index], UmbraLangIDE.sys[index],
-                        UmbraLangIDE.xs[i], UmbraLangIDE.ys[i], UmbraLangIDE.sxs[i], UmbraLangIDE.sys[i]))
+                    for (int i = 0; i < UmbraLangIDE.xs.Count; i++)
                     {
-                        isStandingOnSomething = true;
+                        if (i == index) continue;
 
-                        // Sofort genau über dem Objekt absetzen:
-                        UmbraLangIDE.ys[index] = UmbraLangIDE.ys[i] - UmbraLangIDE.sys[index];
-                        SetObjectY(index, UmbraLangIDE.ys[index]);
-                        break;
+                        int offset = GetVisualOffset(index);
+
+                        if (CheckCollision3(
+                            UmbraLangIDE.xs[index], testY - offset, UmbraLangIDE.sxs[index], UmbraLangIDE.sys[index],
+                            UmbraLangIDE.xs[i], UmbraLangIDE.ys[i], UmbraLangIDE.sxs[i], UmbraLangIDE.sys[i]))
+                        {
+                            landed = true;
+                            collision = true;
+
+                            // Visuellen Offset korrekt berücksichtigen
+                            UmbraLangIDE.ys[index] = UmbraLangIDE.ys[i] - UmbraLangIDE.sys[index] - offset;
+                            SetObjectY(index, UmbraLangIDE.ys[index]);
+                            break;
+                        }
                     }
+
+                    if (collision)
+                        break;
+
+                    newY = testY;
                 }
 
-                if (!isStandingOnSomething)
-                {
-                    // Frei → weiter fallen
-                    UmbraLangIDE.ys[index] += gravitySpeed;
-                    SetObjectY(index, UmbraLangIDE.ys[index]);
-                }
-                else
-                {
-                    // ✅ Steht auf etwas → nicht bewegen
-                    SetObjectY(index, UmbraLangIDE.ys[index]); // Optional: zum "Einrasten" bei Bodenkontakt
-                                                               // Optional: Logging oder Debug
-                    //Console.WriteLine($"Objekt {index} steht auf Boden, Gravity gestoppt.");
-                }
+                UmbraLangIDE.ys[index] = newY;
+                SetObjectY(index, newY);
             }
+        }
+        int GetVisualOffset(int index)
+        {
+            if (index == 0) return 28;
+            return 0;
+        }
+
+        bool CheckCollision3(int x1, int y1, int w1, int h1,
+                     int x2, int y2, int w2, int h2)
+        {
+            return x1 < x2 + w2 &&
+                   x1 + w1 > x2 &&
+                   y1 < y2 + h2 &&
+                   y1 + h1 > y2;
         }
 
         public void SetObjectY(int index, int newY)
         {
-            if (index >= 0 && index < UmbraLangIDE.ys.Count)
-            {
-                UmbraLangIDE.ys[index] = newY;
-                if (index == 0)
-                {
-                    playerY = newY;
-                    UmbraLangIDE.SetPlayerY(playerY);
-                }
-
-                List<int> xx = UmbraLangIDE.GetXPositions();
-                List<int> yy = UmbraLangIDE.GetYPositions();
-
-                yy[index] = newY;
-
-                UmbraLangIDE.SetDictionary(xx, yy);
-
-                Invalidate(); // neu zeichnen
-            }
-            else
+            if (index < 0 || index >= UmbraLangIDE.ys.Count)
             {
                 Console.WriteLine($"❌ Ungültiger Index in SetObjectY: {index}");
+                return;
             }
+
+            UmbraLangIDE.ys[index] = newY;
+
+            if (index == 0)
+            {
+                playerY = newY;
+                UmbraLangIDE.SetPlayerY(playerY);
+            }
+
+            // Synchronisiere komplette Positionen
+            var xs = UmbraLangIDE.GetXPositions();
+            var ys = UmbraLangIDE.GetYPositions();
+
+            if (ys.Count != UmbraLangIDE.ys.Count)
+            {
+                Console.WriteLine("⚠️ Inkonsistente Y-Listenlängen!");
+                return;
+            }
+
+            ys[index] = newY;
+            UmbraLangIDE.SetDictionary(xs, ys);
+
+            Invalidate(); // neu zeichnen
         }
         private bool IsPlayerNearObject(int objectIndex, int threshold = 20)
         {
@@ -3040,5 +3269,6 @@ namespace SCIDE
         public string CodeBlock;
         public bool IsLooping;
         public bool WasPreviouslyDown;
+        public bool everyTime;
     }
 }
