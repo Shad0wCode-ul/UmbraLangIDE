@@ -148,7 +148,8 @@ namespace SCIDE
         "setBackgroundImage", "playAudio", "startGame", "UmbraGameLib", "getPlayerPos",
         "replacePlayerX", "replacePlayerY", "movePlayer", "quit", "Instantiate", "ifKeyPressed",
         "getKeyInput", "waitKeyPressed", "whileKeyPressed", "checkCollisionOfSomething", "everyTimeKeyPressed",
-        "addGravity", "checkCollisionWithPlayer", "checkCollision", "cameraFollowPlayer", "stopCameraFollow"
+        "addGravity", "checkCollisionWithPlayer", "checkCollision", "cameraFollowPlayer", "stopCameraFollow", 
+        "showDialog"
     };
 
         private List<string> availableCommands = new List<string>
@@ -882,6 +883,7 @@ namespace SCIDE
                             try
                             {
                                 gameWindow = new GameWindow(imagePath);
+                                SetupInspector();
                                 if (gameWindow != null)
                                 {
                                     playerX = playerXNormal;
@@ -939,7 +941,7 @@ namespace SCIDE
                         {
                             line = line.Replace("replacePlayerX()", gameWindow.GetPlayerX().ToString());
                             //WriteConsole(gameWindow.GetPlayerX().ToString() + " " + gameWindow.GetPlayerY().ToString());
-                        }   
+                        }
                         else if (line.Contains("replacePlayerY()"))
                         {
                             line = line.Replace("replacePlayerY()", gameWindow.GetPlayerY().ToString());
@@ -1206,6 +1208,7 @@ namespace SCIDE
                             {
                                 string keyName = args[0].Trim('"');
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (Enum.TryParse(keyName, true, out Keys targetKey))
                                 {
@@ -1252,6 +1255,7 @@ namespace SCIDE
                                 string keyName = args[0].Trim('"');
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (Enum.TryParse(keyName, true, out Keys targetKey))
                                 {
@@ -1309,6 +1313,7 @@ namespace SCIDE
                                 string keyName = args[0].Trim('"');
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (Enum.TryParse(keyName, true, out Keys targetKey))
                                 {
@@ -1464,6 +1469,7 @@ namespace SCIDE
                                 int object1Index = int.Parse(args[0]);
                                 int object2Index = int.Parse(args[1]);
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (gameWindow.IfCollision2(object1Index, object2Index))
                                 {
@@ -1534,6 +1540,276 @@ namespace SCIDE
                                 else
                                 {
                                     WriteConsole("❌ Ungültiger Index bei addGravity()");
+                                }
+                            }
+                        }
+                        else if (line.StartsWith("showDialog("))
+                        {
+                            int open = line.IndexOf('(');
+                            int close = line.IndexOf(')', open);
+                            if (open != -1 && close != -1)
+                            {
+                                string arg = line.Substring(open + 1, close - open - 1).Trim();
+                                string Text = arg.Trim().Trim('"');
+                                MessageBox.Show(Text);
+                            }
+                        }
+                        else if (line.StartsWith("playAudio("))
+                        {
+                            int openParen = line.IndexOf('(');
+                            int closeParen = line.IndexOf(')', openParen + 1);
+                            if (openParen != -1 && closeParen != -1)
+                            {
+                                string inBrackets = line.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+                                string audioPath = inBrackets.Trim('"');
+                                WriteConsole(audioPath);
+                                if (File.Exists(audioPath))
+                                {
+                                    System.Media.SoundPlayer player = new System.Media.SoundPlayer(audioPath);
+                                    player.Play();
+                                    if (isDebuging)
+                                        WriteConsole($"Playing audio: {audioPath}");
+                                }
+                                else
+                                {
+                                    WriteConsole($"❌ Audio file not found: {audioPath}");
+                                }
+                            }
+                        }
+                        else if (line.StartsWith("addLabel("))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("Game window not initialized.");
+                                return;
+                            }
+
+                            int openParen = line.IndexOf('(');
+                            int closeParen = line.IndexOf(')', openParen + 1);
+                            if (openParen != -1 && closeParen != -1)
+                            {
+                                string inBrackets = line.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+                                string[] args = inBrackets.Split(',');
+                                if (args.Length >= 4)
+                                {
+                                    string text = args[0].Trim('"');
+                                    int x = int.Parse(args[1]);
+                                    int y = int.Parse(args[2]);
+                                    int size = int.Parse(args[3]);
+
+                                    Label l = new Label();
+                                    l.Location = new Point(x, y);
+                                    l.Text = text;
+                                    l.AutoSize = true;
+                                    l.ForeColor = Color.Black;
+                                    l.Font = new Font("Calibri", size);
+
+                                    gameWindow.Controls.Add(l);
+
+                                    allLabels.Add(l);
+
+                                    if (isDebuging)
+                                        WriteConsole("Added Label");
+                                }
+                            }
+                        }
+                        else if (line.StartsWith("changeTextOfLabel("))
+                        {
+                            // make the change of text compatible with variables like this: chnageTextOfLabel(0, "Hallo " + name)
+                            int openParen = line.IndexOf('(');
+                            int closeParen = line.IndexOf(')', openParen + 1);
+                            if (openParen != -1 && closeParen != -1)
+                            {
+                                string inBrackets = line.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+                                string[] args = inBrackets.Split(',');
+                                if (args.Length == 2)
+                                {
+                                    if (!int.TryParse(args[0], out int index))
+                                    {
+                                        WriteConsole("❌ Ungültiger Label-Index: " + args[0]);
+                                        return;
+                                    }
+                                    if (index < 0 || index >= allLabels.Count)
+                                    {
+                                        WriteConsole("❌ Ungültiger Label-Index: " + index);
+                                        return;
+                                    }
+                                    // Set Text Like this: "Hallo " + variableName
+                                    string text = args[1].Trim(); // Entferne Anführungszeichen
+                                    string[] textTiles = new string[] { };
+                                    if (text.Contains("+"))
+                                    {
+                                        textTiles = text.Split('+');
+                                    }
+                                    if (textTiles.Length == 0)
+                                    {
+                                        if (text.StartsWith("\"") && text.EndsWith("\""))
+                                        {
+                                            text = text.Trim('"'); // Entferne Anführungszeichen
+                                        }
+                                        else
+                                        {
+                                            text = GetValueOfVariable(text, variablesPath); // Hole den Wert der Variable
+                                        }
+                                    }
+                                    else
+                                    {
+                                        text = "";
+                                        foreach (string texttt in textTiles)
+                                        {
+                                            string textt = texttt;
+                                            textt = RemoveSpacesOutsideQuotes(textt);
+                                            if (textt.StartsWith("\"") && textt.EndsWith("\""))
+                                            {
+                                                text += textt.Trim('"'); // Entferne Anführungszeichen
+                                            }
+                                            else
+                                            {
+                                                text += GetValueOfVariable(textt, variablesPath); // Hole den Wert der Variable
+                                            }
+                                        }
+                                    }
+                                    // Setze den Text des Labels
+                                    allLabels[index].Text = text;
+                                    if (isDebuging)
+                                        WriteConsole($"Label {index} geändert: {text}");
+                                }
+                            }
+                        }
+                        else if (line.StartsWith("changeColorOfLabel("))
+                        {
+                            // Change Color of Label like this: changeColorOfLabel(0, Red)
+                            int openParen = line.IndexOf('(');
+                            int closeParen = line.IndexOf(")");
+                            if (openParen != -1 && closeParen != -1)
+                            {
+                                string inBrackets = line.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+                                string[] args = inBrackets.Split(',');
+                                if (args.Length == 2)
+                                {
+                                    if (!int.TryParse(args[0], out int index))
+                                    {
+                                        WriteConsole("❌ Ungültiger Label-Index: " + args[0]);
+                                        return;
+                                    }
+                                    if (index < 0 || index >= allLabels.Count)
+                                    {
+                                        WriteConsole("❌ Ungültiger Label-Index: " + index);
+                                        return;
+                                    }
+                                    string colorName = args[1].Trim();
+                                    Color color;
+                                    try
+                                    {
+                                        color = Color.FromName(colorName);
+                                    }
+                                    catch
+                                    {
+                                        WriteConsole("❌ Ungültige Farbe: " + colorName);
+                                        return;
+                                    }
+                                    allLabels[index].ForeColor = color;
+                                    if (isDebuging)
+                                        WriteConsole($"Label {index} Farbe geändert: {color}");
+                                }
+                            }
+                        }
+                        else if (line.TrimStart().StartsWith("addButton("))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("Game window not initialized.");
+                                return;
+                            }
+
+                            // Wir sammeln alle Zeilen bis zur schließenden Klammer
+                            string fullLine = line;
+                            int blockDepth = line.Count(c => c == '{') - line.Count(c => c == '}');
+
+                            while (blockDepth > 0 && scriptQueue.Count > 0)
+                            {
+                                string nextLine = scriptQueue.Dequeue();
+                                fullLine += "\n" + nextLine;
+                                blockDepth += nextLine.Count(c => c == '{') - nextLine.Count(c => c == '}');
+                            }
+
+                            // Jetzt ist fullLine die vollständige Anweisung (auch über mehrere Zeilen)
+
+                            int openParen = fullLine.IndexOf('(');
+                            int firstBrace = fullLine.IndexOf('{');
+                            int lastBrace = fullLine.LastIndexOf('}');
+
+                            string argsPart = fullLine.Substring(openParen + 1, firstBrace - openParen - 1).Trim().TrimEnd(',');
+                            string[] args = argsPart.Split(',').Select(a => a.Trim()).ToArray();
+
+                            if (args.Length >= 4)
+                            {
+                                string text = args[0].Trim('"');
+                                int x = int.Parse(args[1]);
+                                int y = int.Parse(args[2]);
+                                int size = int.Parse(args[3]);
+
+                                string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+
+                                System.Windows.Forms.Button b = new System.Windows.Forms.Button();
+                                b.Location = new Point(x, y);
+                                b.Text = text;
+                                b.AutoSize = true;
+                                b.ForeColor = Color.Black;
+                                b.Font = new Font("Calibri", size);
+
+                                b.Click += (sender, e) =>
+                                {
+                                    //WriteConsole("Button clicked. Running code:");
+                                    //WriteConsole(codeBlock);
+                                    CompileScript(codeBlock + "\n", path);
+                                };
+
+                                gameWindow.Controls.Add(b);
+
+                                if (isDebuging)
+                                    WriteConsole($"Button hinzugefügt: {text}");
+                            }
+                            else
+                            {
+                                WriteConsole("❌ Ungültige Argumente in addButton()");
+                            }
+                        }
+                        else if (line.StartsWith("addImage("))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("Game window not initialized.");
+                                return;
+                            }
+                            int openParen = line.IndexOf('(');
+                            int closeParen = line.IndexOf(')', openParen + 1);
+                            if (openParen != -1 && closeParen != -1)
+                            {
+                                string inBrackets = line.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+                                string[] args = inBrackets.Split(',');
+                                if (args.Length >= 3)
+                                {
+                                    string imagePath = args[0].Trim('"');
+                                    int x = int.Parse(args[1]);
+                                    int y = int.Parse(args[2]);
+                                    if (File.Exists(imagePath))
+                                    {
+                                        PictureBox pictureBox = new PictureBox
+                                        {
+                                            Image = Image.FromFile(imagePath),
+                                            Location = new Point(x, y),
+                                            SizeMode = PictureBoxSizeMode.AutoSize
+                                        };
+                                        gameWindow.Controls.Add(pictureBox);
+                                        if (isDebuging)
+                                            WriteConsole($"Image added: {imagePath}");
+                                    }
+                                    else
+                                    {
+                                        WriteConsole($"❌ Image not found: {imagePath}");
+                                    }
                                 }
                             }
                         }
@@ -1783,6 +2059,7 @@ namespace SCIDE
                                 int size = int.Parse(args[3]);
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 System.Windows.Forms.Button b = new System.Windows.Forms.Button();
                                 b.Location = new Point(x, y);
@@ -2485,6 +2762,7 @@ namespace SCIDE
                     WriteConsole("[UmbraLang] Fehler: " + ex.Message + " in line: " + ex.StackTrace);
             }
         }
+
         public static void SetPlayerY(int newY)
         {
             playerY = newY;
@@ -2492,6 +2770,23 @@ namespace SCIDE
         public static void SetPlayerX(int newY)
         {
             playerX = newY;
+        }
+
+        void SetupInspector()
+        {
+            gameWindow.MouseClick += (s, e) =>
+            {
+                for (int i = 0; i < UmbraLangIDE.xs.Count; i++)
+                {
+                    Rectangle rect = new Rectangle(UmbraLangIDE.xs[i], UmbraLangIDE.ys[i], UmbraLangIDE.sxs[i], UmbraLangIDE.sys[i]);
+                    if (rect.Contains(e.Location))
+                    {
+                        string info = $"🧩 Objekt {i}\nPos: ({rect.X}, {rect.Y})\nGröße: {rect.Width}x{rect.Height}";
+                        MessageBox.Show(info, "Inspector");
+                        break;
+                    }
+                }
+            };
         }
 
         public static List<int> GetXPositions()
@@ -2854,38 +3149,6 @@ namespace SCIDE
                    y1 < y2 + h2 &&
                    y1 + h1 > y2;
         }
-
-        Dictionary<string, Image[]> animations = new Dictionary<string, Image[]>();
-        string currentAnim = "idle";
-        int currentFrame = 0;
-        int frameCounter = 0;
-
-        void LoadAnimations()
-        {
-            animations["idle"] = LoadFrames("Sprites/Idle_", 4);
-            animations["run"] = LoadFrames("Sprites/Run_", 6);
-        }
-
-        Image[] LoadFrames(string prefix, int count)
-        {
-            Image[] frames = new Image[count];
-            for (int i = 0; i < count; i++)
-                frames[i] = Image.FromFile($"{prefix}{i}.png");
-            return frames;
-        }
-
-        void UpdateAnimation()
-        {
-            frameCounter++;
-            if (frameCounter >= 5) // langsamer oder schneller animieren
-            {
-                frameCounter = 0;
-                currentFrame = (currentFrame + 1) % animations[currentAnim].Length;
-            }
-        }
-
-        Image GetCurrentPlayerSprite() => animations[currentAnim][currentFrame];
-
 
         private bool isCameraFollowingPlayer = false;
         private float cameraOffsetX = 0;
