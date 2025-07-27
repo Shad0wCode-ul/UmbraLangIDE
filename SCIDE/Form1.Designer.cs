@@ -149,7 +149,7 @@ namespace SCIDE
         "replacePlayerX", "replacePlayerY", "movePlayer", "quit", "Instantiate", "ifKeyPressed",
         "getKeyInput", "waitKeyPressed", "whileKeyPressed", "checkCollisionOfSomething", "everyTimeKeyPressed",
         "addGravity", "checkCollisionWithPlayer", "checkCollision", "cameraFollowPlayer", "stopCameraFollow", 
-        "showDialog"
+        "showDialog", "onCollision", "Destroy"
     };
 
         private List<string> availableCommands = new List<string>
@@ -786,6 +786,7 @@ namespace SCIDE
         bool isDebuging = false;
         bool closabel = true;
         private List<KeyAction> keyActions = new List<KeyAction>();
+        private List<CollisionWaiter> collisionWaiters = new List<CollisionWaiter>();
         //private System.Windows.Forms.Label[] allButtons;
         private void ContinueScriptExecution(string content, string path)
         {
@@ -809,8 +810,6 @@ namespace SCIDE
                 functions = new();
                 currentFunctionName = null;
                 currentFunctionLines = null;
-
-                //WriteConsole(playerXNormal.ToString() + " " + playerYNormal.ToString());
 
                 for (int i = 0; i < lines.Length; i++)
                 {
@@ -900,6 +899,7 @@ namespace SCIDE
                                     gameWindow.ApplyGravity();
                                     gameWindow.UpdateCameraFollow(playerX, playerY); // Kamera aktualisieren
                                     //gameWindow.CheckAndTeleportPlayer();
+                                    CheckCollision();
                                     Invalidate();
                                 };
                                 gameWindow.Show();
@@ -1208,7 +1208,7 @@ namespace SCIDE
                             {
                                 string keyName = args[0].Trim('"');
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
-                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+                                //codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (Enum.TryParse(keyName, true, out Keys targetKey))
                                 {
@@ -1255,7 +1255,7 @@ namespace SCIDE
                                 string keyName = args[0].Trim('"');
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
-                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+                                //codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (Enum.TryParse(keyName, true, out Keys targetKey))
                                 {
@@ -1313,7 +1313,7 @@ namespace SCIDE
                                 string keyName = args[0].Trim('"');
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
-                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+                                //codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (Enum.TryParse(keyName, true, out Keys targetKey))
                                 {
@@ -1469,13 +1469,53 @@ namespace SCIDE
                                 int object1Index = int.Parse(args[0]);
                                 int object2Index = int.Parse(args[1]);
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
-                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+                                //codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 if (gameWindow.IfCollision2(object1Index, object2Index))
                                 {
                                     CompileScript(codeBlock + "\n", path);
                                 }
 
+                            }
+                            else
+                            {
+                                WriteConsole("❌ Ungültige Argumente in checkCollision()");
+                            }
+                        }
+                        else if (line.StartsWith("onCollision("))
+                        {
+                            if (gameWindow == null)
+                            {
+                                WriteConsole("No game Window initalized");
+                                return;
+                            }
+
+                            string fullLine = line;
+                            int blockDepth = line.Count(c => c == '{') - line.Count(c => c == '}');
+
+                            while (blockDepth > 0 && scriptQueue.Count > 0)
+                            {
+                                string nextLine = scriptQueue.Dequeue();
+                                fullLine += "\n" + nextLine;
+                                blockDepth += nextLine.Count(c => c == '{') - nextLine.Count(c => c == '}');
+                            }
+
+                            // Jetzt ist fullLine die vollständige Anweisung (auch über mehrere Zeilen)
+
+                            int openParen = fullLine.IndexOf('(');
+                            int firstBrace = fullLine.IndexOf('{');
+                            int lastBrace = fullLine.LastIndexOf('}');
+
+                            string argsPart = fullLine.Substring(openParen + 1, firstBrace - openParen - 1).Trim().TrimEnd(',');
+                            string[] args = argsPart.Split(',').Select(a => a.Trim()).ToArray();
+
+                            if (args.Length >= 2)
+                            {
+                                int object1Index = int.Parse(args[0]);
+                                int object2Index = int.Parse(args[1]);
+                                string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
+
+                                collisionWaiters.Add(new CollisionWaiter(object1Index, object2Index, codeBlock));
                             }
                             else
                             {
@@ -1750,7 +1790,7 @@ namespace SCIDE
                                 int size = int.Parse(args[3]);
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
-                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+                                //codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 System.Windows.Forms.Button b = new System.Windows.Forms.Button();
                                 b.Location = new Point(x, y);
@@ -1810,6 +1850,22 @@ namespace SCIDE
                                     {
                                         WriteConsole($"❌ Image not found: {imagePath}");
                                     }
+                                }
+                            }
+                        }
+                        else if (line.StartsWith("Destroy("))
+                        {
+                            int openParen = line.IndexOf('(');
+                            int closeParen = line.IndexOf(')', openParen + 1);
+                            if (openParen != -1 && closeParen != -1)
+                            {
+                                string inBrackets = line.Substring(openParen + 1, closeParen - openParen - 1).Trim();
+                                string[] args = inBrackets.Split(',');
+                                if (args.Length >= 1)
+                                {
+                                    int index = int.Parse(args[0]);
+                                    gameWindow.imagel[index] = Image.FromFile("Destroyed\\Destroyed.png");
+                                    gameWindow.isDestroyed[index] = true;
                                 }
                             }
                         }
@@ -2059,7 +2115,7 @@ namespace SCIDE
                                 int size = int.Parse(args[3]);
 
                                 string codeBlock = fullLine.Substring(firstBrace + 1, lastBrace - firstBrace - 1).Trim();
-                                codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
+                                //codeBlock = RemoveSpacesOutsideQuotes(codeBlock);
 
                                 System.Windows.Forms.Button b = new System.Windows.Forms.Button();
                                 b.Location = new Point(x, y);
@@ -2789,6 +2845,23 @@ namespace SCIDE
             };
         }
 
+        private void CheckCollision()
+        {
+            List<CollisionWaiter> collisionWaiterss = new List<CollisionWaiter>();
+            foreach (CollisionWaiter collisionWaiter in collisionWaiters)
+            {
+                if (gameWindow.IfCollision2(collisionWaiter.object1, collisionWaiter.object2))
+                {
+                    CompileScript(collisionWaiter.code + "\n", currentScriptPath);
+                    collisionWaiterss.Add(collisionWaiter);
+                }
+            }
+            foreach (CollisionWaiter cw in collisionWaiterss)
+            {
+                collisionWaiters.Remove(cw);
+            }
+        }
+
         public static List<int> GetXPositions()
         {
             return xs;
@@ -3117,6 +3190,19 @@ namespace SCIDE
             }
         }
     }
+    public class CollisionWaiter
+    {
+        public int object1;
+        public int object2;
+        public string code;
+
+        public CollisionWaiter(int obj1, int obj2, string code)
+        {
+            object1 = obj1;
+            object2 = obj2;
+            this.code = code;
+        }
+    }
     public class GameWindow : Form
     {
         public Keys LastKeyPressed { get; set; } = Keys.None;
@@ -3133,7 +3219,7 @@ namespace SCIDE
         List<int> yl = new List<int>();
         List<int> sizexl = new List<int>();
         List<int> sizeyl = new List<int>();
-        List<Image> imagel = new List<Image>();
+        public List<Image> imagel = new List<Image>();
         public static List<int> gravityObjects = new List<int>();
 
         private void WriteConsole(string text)
@@ -3254,7 +3340,6 @@ namespace SCIDE
             //}
         }
 
-
         public GameWindow(string imagePath)
         {
             this.Text = "Game Preview";
@@ -3359,6 +3444,8 @@ namespace SCIDE
 
             UmbraLangIDE.SetDictionary(xx, yy);
 
+            isDestroyed.Add(false);
+
             this.Paint += GameWindow_Paint;
             Invalidate();
         }
@@ -3403,49 +3490,61 @@ namespace SCIDE
         }
         // Optional: Eine Map für Offsets (falls du mehrere Objekte hast)
         Dictionary<int, int> visualYOffset = new Dictionary<int, int>();
+        public List<bool> isDestroyed = new List<bool>();
         public void ApplyGravity()
         {
-            visualYOffset[0] = 28;  // Beispiel: 239 statt 211 → 239 - 211 = 28
-            foreach (int index in objectsWithGravity)
+            try
             {
-                bool landed = false;
-                // Fallback-Wert, falls keine Kollision erkannt wird
-                int newY = UmbraLangIDE.ys[index];
-
-                // Pixelweise nach unten prüfen
-                for (int step = 1; step <= gravitySpeed; step++)
+                visualYOffset[0] = 28;  // Beispiel: 239 statt 211 → 239 - 211 = 28
+                foreach (int index in objectsWithGravity)
                 {
-                    int testY = UmbraLangIDE.ys[index] + step;
-                    bool collision = false;
+                    bool landed = false;
+                    // Fallback-Wert, falls keine Kollision erkannt wird
+                    int newY = UmbraLangIDE.ys[index];
 
-                    for (int i = 0; i < UmbraLangIDE.xs.Count; i++)
+                    // Pixelweise nach unten prüfen
+                    for (int step = 1; step <= GravitySpeed; step++)
                     {
-                        if (i == index) continue;
+                        int testY = UmbraLangIDE.ys[index] + step;
+                        bool collision = false;
 
-                        int offset = GetVisualOffset(index);
-
-                        if (CheckCollision3(
-                            UmbraLangIDE.xs[index], testY - offset, UmbraLangIDE.sxs[index], UmbraLangIDE.sys[index],
-                            UmbraLangIDE.xs[i], UmbraLangIDE.ys[i], UmbraLangIDE.sxs[i], UmbraLangIDE.sys[i]))
+                        for (int i = 0; i < UmbraLangIDE.xs.Count; i++)
                         {
-                            landed = true;
-                            collision = true;
+                            if (i == index) continue;
 
-                            // Visuellen Offset korrekt berücksichtigen
-                            UmbraLangIDE.ys[index] = UmbraLangIDE.ys[i] - UmbraLangIDE.sys[index] - offset;
-                            SetObjectY(index, UmbraLangIDE.ys[index]);
-                            break;
+                            int offset = GetVisualOffset(index);
+                            if (!isDestroyed[i - 1])
+                            {
+                                if (isDestroyed[i - 1])
+                                    WriteConsole(isDestroyed[i - 1].ToString());
+                                if (CheckCollision3(
+                                    UmbraLangIDE.xs[index], testY - offset, UmbraLangIDE.sxs[index], UmbraLangIDE.sys[index],
+                                    UmbraLangIDE.xs[i], UmbraLangIDE.ys[i], UmbraLangIDE.sxs[i], UmbraLangIDE.sys[i]))
+                                {
+                                    landed = true;
+                                    collision = true;
+
+                                    // Visuellen Offset korrekt berücksichtigen
+                                    UmbraLangIDE.ys[index] = UmbraLangIDE.ys[i] - UmbraLangIDE.sys[index] - offset;
+                                    SetObjectY(index, UmbraLangIDE.ys[index]);
+                                    break;
+                                }
+                            }
                         }
+
+                        if (collision)
+                            break;
+
+                        newY = testY;
                     }
 
-                    if (collision)
-                        break;
-
-                    newY = testY;
+                    UmbraLangIDE.ys[index] = newY;
+                    SetObjectY(index, newY);
                 }
-
-                UmbraLangIDE.ys[index] = newY;
-                SetObjectY(index, newY);
+            }
+            catch (Exception ex)
+            {
+                WriteConsole($"Fehler bei der Gravitanwendung: {ex.Message}\n{ex.StackTrace}");
             }
         }
         int GetVisualOffset(int index)
